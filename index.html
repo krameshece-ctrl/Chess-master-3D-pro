@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YOU vs BOT - Ultimate</title>
+<style>
+:root{--light:#f0d9b5;--dark:#b58863}
+*{box-sizing:border-box}body{margin:0;background:#0e0e11;color:#e8e8ea;font-family:system-ui,sans-serif;display:flex;justify-content:center;padding:16px}
+.wrap{width:1080px;max-width:100%;display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px}
+@media(max-width:900px){.wrap{grid-template-columns:1fr}}
+.card{background:#17171d;border:1px solid #2a2a33;border-radius:16px;padding:14px}
+.board{width:100%;aspect-ratio:1;display:grid;grid-template-columns:repeat(8,1fr);border-radius:12px;overflow:hidden;border:1px solid #2a2a33}
+.sq{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:clamp(20px,4.3vw,34px);cursor:pointer;position:relative;user-select:none}
+.sq.light{background:var(--light);color:#000}.sq.dark{background:var(--dark);color:#000}
+.sq.sel{outline:3px solid gold;outline-offset:-3px;z-index:2}.sq.last{background:#f6f668!important}.sq.check{background:#ff4444!important}
+.dot{width:16px;height:16px;background:rgba(0,0,0,.35);border-radius:50%}.dot.cap{width:88%;height:88%;border:4px solid rgba(0,0,0,.35);background:transparent;border-radius:50%}
+.coord{position:absolute;font-size:9px;color:rgba(0,0,0,.6);font-weight:700}.coord.r{bottom:2px;right:3px}.coord.f{top:2px;left:3px}
+.btn{height:40px;border-radius:10px;border:1px solid #333;background:#23232c;color:#fff;font-weight:600;cursor:pointer}.btn.p{background:#fff;color:#000}.btns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.moves{max-height:140px;overflow:auto;font-family:monospace;font-size:13px}
+h1{margin:0 0 8px;font-size:20px}.small{font-size:11px;opacity:.7}
+.timer{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
+.tbox{background:#23232c;border:1px solid #333;border-radius:10px;padding:8px;text-align:center}.tbox.active{border-color:gold;background:#2a2a1a}
+.tlabel{font-size:10px;opacity:.6}.tval{font-size:20px;font-weight:800;font-family:monospace}
+select{width:100%;height:38px;background:#23232c;color:#fff;border:1px solid #333;border-radius:10px;padding:0 10px;font-weight:600;margin-bottom:8px}
+.botbox{background:linear-gradient(135deg,#1e1e2a,#2a2a3a);border:1px solid #3a3a4a;border-radius:12px;padding:12px;min-height:110px}
+.bothead{font-size:11px;opacity:.6;margin-bottom:6px;display:flex;justify-content:space-between}
+.botmsg{font-size:13px;line-height:1.45}.botmsg b{color:#ffd86e}.eval{font-size:10px;opacity:.5;margin-top:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="card">
+<h1>♔ YOU vs BOT - Ultimate</h1>
+<div id="status" style="font-weight:700">White to move - YOU</div>
+<div class="timer">
+<div id="tWhite" class="tbox active"><div class="tlabel">YOU (White)</div><div id="tW" class="tval">10:00</div></div>
+<div id="tBlack" class="tbox"><div class="tlabel">BOT (Black)</div><div id="tB" class="tval">10:00</div></div>
+</div>
+<div id="board" class="board"></div>
+<div class="small" style="margin-top:6px">BOT understands every move!</div>
+</div>
+<div>
+<div class="card">
+<div class="small">BOT DIFFICULTY</div>
+<select id="diff" onchange="setDiff()">
+<option value="1">Easy - Noob</option>
+<option value="2" selected>Medium</option>
+<option value="3">Hard - Pro</option>
+<option value="4">Impossible - Grandmaster</option>
+</select>
+<div class="small">BOARD THEME</div>
+<select id="theme" onchange="setTheme()">
+<option value="classic">Classic Brown</option>
+<option value="blue">Blue Gray</option>
+<option value="green">Green</option>
+<option value="purple">Purple</option>
+<option value="wood">Dark Wood</option>
+<option value="neon">Neon</option>
+</select>
+<div class="botbox"><div class="bothead"><span>🤖 SMART BOT</span><span id="botMood">🧠</span></div><div id="botTalk" class="botmsg">Let's play! I will analyze every move.</div><div id="botEval" class="eval"></div></div>
+<div style="height:10px"></div>
+<div class="btns"><button class="btn" onclick="undo()">Undo</button><button class="btn" onclick="hint()">Hint</button><button class="btn p" onclick="newGame()">New Game</button></div>
+<div id="cap" class="small" style="margin-top:10px"></div>
+</div>
+<div style="height:12px"></div>
+<div class="card"><div class="small">MOVES</div><div id="moves" class="moves">No moves yet</div></div>
+</div>
+</div>
+<script>
+const back=['r','n','b','q','k','b','n','r'];
+let board,turn,castling,enPassant,history,moveHistory,sel,leg,last,cW,cB,think=false,gameOver=false;
+let botDepth=2, whiteTime=600, blackTime=600, timerInt=null;
+const S={p:'♟',n:'♞',b:'♝',r:'♜',q:'♛',k:'♚',P:'♙',N:'♘',B:'♗',R:'♖',Q:'♕',K:'♔'};
+const vals={p:100,n:320,b:330,r:500,q:900,k:20000};
+function sym(p){return p?p.color==='w'?S[p.type.toUpperCase()]:S[p.type]:''}
+function clone(b){return b.map(r=>r.map(p=>p?{...p}:null))}
+function inB(r,c){return r>=0&&r<8&&c>=0&&c<8}
+function findK(b,col){for(let r=0;r<8;r++)for(let c=0;c<8;c++){let p=b[r][c];if(p&&p.color===col&&p.type==='k')return[r,c]}return null}
+function evalB(b){let s=0;for(let r=0;r<8;r++)for(let c=0;c<8;c++){let p=b[r][c];if(!p)continue;let v=vals[p.type];let bonus=0;if(p.type==='p')bonus=p.color==='w'?(6-r)*5:r*5;if(p.color==='w')s+=v+bonus;else s-=v+bonus;}return s;}
+function init(){
+ board=Array(8).fill(0).map(()=>Array(8).fill(null));
+ for(let c=0;c<8;c++){board[0][c]={type:back[c],color:'b'};board[1][c]={type:'p',color:'b'};board[6][c]={type:'p',color:'w'};board[7][c]={type:back[c],color:'w'}}
+ turn='w';castling={wK:true,wQ:true,bK:true,bQ:true};enPassant=null;history=[];moveHistory=[];sel=null;leg=[];last=null;cW=[];cB=[];think=false;gameOver=false;
+ whiteTime=600;blackTime=600;clearInterval(timerInt);startTimer();talk("Ready! Theme, difficulty, timer - all yours!","🧠");render();
+}
+function setDiff(){botDepth=parseInt(document.getElementById('diff').value);talk(`Difficulty <b>${['','Easy','Medium','Hard','Impossible'][botDepth]}</b> - depth ${botDepth}`,"🧠")}
+function setTheme(){
+ let t=document.getElementById('theme').value;
+ let themes={classic:['#f0d9b5','#b58863'],blue:['#dee3e6','#8ca2ad'],green:['#ffffdd','#86a666'],purple:['#e8e1ff','#9f8ac0'],wood:['#f0d2a8','#a67c52'],neon:['#2a2a3a','#00ffcc']};
+ document.documentElement.style.setProperty('--light',themes[t][0]);document.documentElement.style.setProperty('--dark',themes[t][1]);
+ talk(`Board theme changed to <b>${t}</b>! 🎨`,"🎨");
+}
+function fmt(s){let m=Math.floor(s/60),sec=s%60;return (m<10?'0':'')+m+':'+(sec<10?'0':'')+sec}
+function startTimer(){
+ timerInt=setInterval(()=>{
+  if(gameOver)return;
+  if(turn==='w'){if(!think){whiteTime--;if(whiteTime<=0){whiteTime=0;gameOver=true;talk("Time out! BOT WINS ⏰","😎");}}}
+  else{blackTime--;if(blackTime<=0){blackTime=0;gameOver=true;talk("I ran out of time! YOU WIN ⏰","😵")}}
+  document.getElementById('tW').textContent=fmt(whiteTime);document.getElementById('tB').textContent=fmt(blackTime);
+  document.getElementById('tWhite').classList.toggle('active',turn==='w');document.getElementById('tBlack').classList.toggle('active',turn==='b');
+  if(whiteTime<=0||blackTime<=0)render();
+ },1000);
+}
+function talk(msg,mood){document.getElementById('botTalk').innerHTML=msg;if(mood)document.getElementById('botMood').textContent=mood;}
+function attacked(b,tar,att){
+ let[tr,tc]=tar,dir=att==='w'?-1:1,pr=tr-dir;
+ for(let dc of[-1,1]){let pc=tc-dc;if(inB(pr,pc)){let p=b[pr][pc];if(p&&p.color===att&&p.type==='p')return true;}}
+ for(let[dr,dc]of[[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]){let r=tr+dr,c=tc+dc;if(inB(r,c)){let p=b[r][c];if(p&&p.color===att&&p.type==='n')return true;}}
+ for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){if(!dr&&!dc)continue;let r=tr+dr,c=tc+dc;if(inB(r,c)){let p=b[r][c];if(p&&p.color===att&&p.type==='k')return true;}}
+ for(let[dr,dc]of[[-1,-1],[-1,1],[1,-1],[1,1]]){let r=tr+dr,c=tc+dc;while(inB(r,c)){let p=b[r][c];if(p){if(p.color===att&&(p.type==='b'||p.type==='q'))return true;break;}r+=dr;c+=dc;}}
+ for(let[dr,dc]of[[-1,0],[1,0],[0,-1],[0,1]]){let r=tr+dr,c=tc+dc;while(inB(r,c)){let p=b[r][c];if(p){if(p.color===att&&(p.type==='r'||p.type==='q'))return true;break;}r+=dr;c+=dc;}}
+ return false;
+}
+function pseudo(st,r,c){
+ let b=st.board,p=b[r][c];if(!p)return[];let m=[],opp=p.color==='w'?'b':'w';
+ let add=(tr,tc,ex={})=>{if(!inB(tr,tc))return;let t=b[tr][tc];if(t&&t.color===p.color)return;let cap=t||null;if(p.type==='p'&&(tr===0||tr===7))m.push({from:[r,c],to:[tr,tc],piece:p,captured:cap,promo:'q',...ex});else m.push({from:[r,c],to:[tr,tc],piece:p,captured:cap,...ex});};
+ if(p.type==='p'){let dir=p.color==='w'?-1:1,sr=p.color==='w'?6:1,fr=r+dir;if(inB(fr,c)&&!b[fr][c]){add(fr,c);if(r===sr){let fr2=r+dir*2;if(inB(fr2,c)&&!b[c])add(fr2,c);}}for(let dc of[-1,1]){let tr=r+dir,tc=c+dc;if(!inB(tr,tc))continue;let t=b[tr][tc];if(t&&t.color===opp)add(tr,tc);else if(st.enPassant&&st.enPassant[0]===tr&&st.enPassant[1]===tc)add(tr,tc,{ep:true,captured:{type:'p',color:opp}});}}
+ else if(p.type==='n'){for(let[dr,dc]of[[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]])add(r+dr,c+dc);}
+ else if(p.type==='b'||p.type==='r'||p.type==='q'){let dirs=[];if(p.type==='b'||p.type==='q')dirs.push(...[[-1,-1],[-1,1],[1,-1],[1,1]]);if(p.type==='r'||p.type==='q')dirs.push(...[[-1,0],[1,0],[0,-1],[0,1]]);for(let[dr,dc]of dirs){let tr=r+dr,tc=c+dc;while(inB(tr,tc)){let t=b[tr][tc];if(t){if(t.color!==p.color)add(tr,tc);break;}add(tr,tc);tr+=dr;tc+=dc;}}}
+ else if(p.type==='k'){for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){if(!dr&&!dc)continue;add(r+dr,c+dc);}if(p.color==='w'&&r===7&&c===4){if(st.castling.wK&&!b[7][5]&&!b[7][6]&&!attacked(b,[7,4],'b')&&!attacked(b,[7,5],'b')&&!attacked(b,[7,6],'b'))add(7,6,{cas:true});if(st.castling.wQ&&!b[7][1]&&!b[7][2]&&!b[7][3]&&!attacked(b,[7,4],'b')&&!attacked(b,[7,3],'b')&&!attacked(b,[7,2],'b'))add(7,2,{cas:true});}if(p.color==='b'&&r===0&&c===4){if(st.castling.bK&&!b[0][5]&&!b[0][6]&&!attacked(b,[0,4],'w')&&!attacked(b,[0,5],'w')&&!attacked(b,[0,6],'w'))add(0,6,{cas:true});if(st.castling.bQ&&!b[0][1]&&!b[0][2]&&!b[0][3]&&!attacked(b,[0,4],'w')&&!attacked(b,[0,3],'w')&&!attacked(b,[0,2],'w'))add(0,2,{cas:true});}}
+ return m;
+}
+function legal(st){let all=[];for(let r=0;r<8;r++)for(let c=0;c<8;c++){let p=st.board[r][c];if(p&&p.color===st.turn){for(let m of pseudo(st,r,c)){let ns=apply(st,m),k=findK(ns.board,st.turn);if(k&&!attacked(ns.board,k,st.turn==='w'?'b':'w'))all.push(m);}}}return all;}
+function apply(st,m){
+ let b=clone(st.board),[fr,fc]=m.from,[tr,tc]=m.to,pc=b[fr][fc],cap=null;
+ if(m.ep){b[fr][tc]=null;cap={type:'p',color:pc.color==='w'?'b':'w'};}else cap=b[tr][tc];
+ b[tr][tc]={type:m.promo||pc.type,color:pc.color};b[fr][fc]=null;
+ if(m.cas){if(tc===6){b[tr][5]=b[tr][7];b[tr][7]=null;}else{b[tr][3]=b[tr][0];b[tr][0]=null;}}
+ let cas={...st.castling};if(pc.type==='k'){if(pc.color==='w'){cas.wK=false;cas.wQ=false;}else{cas.bK=false;cas.bQ=false;}}
+ if(pc.type==='r'){if(fr===7&&fc===0)cas.wQ=false;if(fr===7&&fc===7)cas.wK=false;if(fr===0&&fc===0)cas.bQ=false;if(fr===0&&fc===7)cas.bK=false;}
+ if(cap&&cap.type==='r'){if(tr===7&&tc===0)cas.wQ=false;if(tr===7&&tc===7)cas.wK=false;if(tr===0&&tc===0)cas.bQ=false;if(tr===0&&tc===7)cas.bK=false;}
+ let ep=null;if(pc.type==='p'&&Math.abs(tr-fr)===2)ep=[(fr+tr)/2,fc];
+ return{board:b,turn:st.turn==='w'?'b':'w',castling:cas,enPassant:ep};
+}
+function toSAN(m,st,chk,mate){if(m.cas)return m.to[1]===6?'O-O':'O-O-O';let p=m.piece,cap=m.captured?'x':'',f='abcdefgh'[m.to[1]],r=8-m.to[0];if(p.type==='p')return(cap?'abcdefgh'[m.from[1]]+'x':'')+f+r+(m.promo?'=Q':'')+(mate?'#':chk?'+':'');return p.type.toUpperCase()+cap+f+r+(mate?'#':chk?'+':'');}
+function smartAnalysis(yourMove, boardBefore, boardAfter, evalBefore, evalAfter){
+ let diff=evalAfter-evalBefore;let p=yourMove.piece,file='abcdefgh'[yourMove.to[1]],rank=8-yourMove.to[0];let cap=yourMove.captured;
+ let myKing=findK(boardAfter,'b'),myInCheck=myKing&&attacked(boardAfter,myKing,'w');
+ let analysis="",mood="🧠";let evalText=`Eval: ${evalBefore>0?'+':''}${evalBefore} → ${evalAfter>0?'+':''}${evalAfter} (${diff>0?'+':''}${diff})`;
+ if(myInCheck){analysis=`<b>${toSAN(yourMove,{board:boardBefore},false,false)}+ CHECK!</b> Attacking my king! 👑`;mood="😰";}
+ else if(cap&&cap.type==='q'){analysis=`You took my <b>QUEEN</b> on ${file}${rank}! +900! Eval +${Math.abs(diff)} 😱`;mood="😭";}
+ else if(cap){analysis=`Captured my <b>${cap.type.toUpperCase()}</b> on ${file}${rank}. ${diff>0?'+'+diff:diff}`;mood="😭";}
+ else if(diff<-250){analysis=`<b>${file}${rank}</b> - blunder! Eval ${diff}. You left piece hanging!`;mood="😏";}
+ else if(diff>250){analysis=`Great! <b>${toSAN(yourMove,{board:boardBefore},false,false)}</b> to ${file}${rank} - <b>excellent move!</b> +${diff} 🌟`;mood="😮";}
+ else if(yourMove.cas){analysis=`Castled <b>${yourMove.to[1]===6?'kingside':'queenside'}</b> - king safe! 🏰`;mood="🙂";}
+ else{analysis=`<b>${toSAN(yourMove,{board:boardBefore},false,false)}</b> to <b>${file}${rank}</b>. Eval ${diff>0?'+':''}${diff}. I'm thinking...`;mood="🤔";}
+ return{text:analysis,eval:evalText,mood:mood};
+}
+function best(st,d){let ms=legal(st);if(!ms.length)return null;ms.sort(()=>Math.random()-.5);let be=null,bs=st.turn==='w'?-1e9:1e9;for(let m of ms){let ns=apply(st,m);let sc=minimax(ns,d-1,-1e9,1e9,ns.turn==='w');if(st.turn==='w'){if(sc>bs){bs=sc;be=m;}}else if(sc<bs){bs=sc;be=m;}}return be;}
+function minimax(st,d,a,b,max){
+ if(d===0)return evalB(st.board);let ms=legal(st);if(!ms.length){let k=findK(st.board,st.turn);let chk=k&&attacked(st.board,k,st.turn==='w'?'b':'w');if(chk)return st.turn==='w'?-100000:100000;return 0;}
+ if(max){let mx=-1e9;for(let m of ms){let ns=apply(st,m),ev=minimax(ns,d-1,a,b,false);mx=Math.max(mx,ev);a=Math.max(a,ev);if(b<=a)break;}return mx;}else{let mn=1e9;for(let m of ms){let ns=apply(st,m),ev=minimax(ns,d-1,a,b,true);mn=Math.min(mn,ev);b=Math.min(b,ev);if(b<=a)break;}return mn;}
+}
+function getSt(){return{board,turn,castling,enPassant}}
+function render(){
+ let el=document.getElementById('board');el.innerHTML='';let st=getSt(),all=legal(st),kp=findK(board,turn);let chk=kp&&attacked(board,kp,turn==='w'?'b':'w');
+ for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+  let sq=document.createElement('div');sq.className='sq '+((r+c)%2===0?'light':'dark');
+  if(sel&&sel[0]===r&&sel[1]===c)sq.classList.add('sel');
+  if(last&&((last.from[0]===r&&last.from[1]===c)||(last.to[0]===r&&last.to[1]===c)))sq.classList.add('last');
+  if(chk&&kp[0]===r&&kp[1]===c)sq.classList.add('check');
+  let p=board[r][c];sq.textContent=p?sym(p):'';
+  if(c===7){let cr=document.createElement('span');cr.className='coord r';cr.textContent=8-r;sq.appendChild(cr);}
+  if(r===7){let fr=document.createElement('span');fr.className='coord f';fr.textContent='abcdefgh'[c];sq.appendChild(fr);}
+  if(sel){for(let m of leg){if(m.to[0]===r&&m.to[1]===c){let d=document.createElement('div');d.className='dot'+(board[r][c]?' cap':'');sq.appendChild(d);}}}
+  sq.onclick=()=>clk(r,c);el.appendChild(sq);
+ }
+ gameOver=all.length===0||whiteTime<=0||blackTime<=0;
+ document.getElementById('status').textContent= gameOver? (whiteTime<=0?'TIME OUT — BOT WINS!':blackTime<=0?'TIME OUT — YOU WIN!':(chk?(turn==='w'?'CHECKMATE — BOT WINS!':'CHECKMATE — YOU WIN!'):'STALEMATE!')) : (chk?(turn==='w'?'YOU in CHECK!':'BOT in CHECK!'):(turn==='w'?'White to move - YOU':'Black to move - BOT thinking...'));
+ let mv=document.getElementById('moves');if(moveHistory.length===0)mv.textContent='No moves yet - play e4!';else{let h='';for(let i=0;i<moveHistory.length;i+=2){let w=moveHistory[i],b=moveHistory[i+1];h+=(i/2+1)+'. '+w+' '+(b||'')+'<br>';}mv.innerHTML=h;}
+ document.getElementById('cap').textContent='Captured White: '+cW.map(sym).join(' ')+' | Black: '+cB.map(sym).join(' ');
+ document.getElementById('tW').textContent=fmt(whiteTime);document.getElementById('tB').textContent=fmt(blackTime);
+ document.getElementById('tWhite').classList.toggle('active',turn==='w');document.getElementById('tBlack').classList.toggle('active',turn==='b');
+ if(turn==='b'&&all.length>0&&!think&&!gameOver){think=true;setTimeout(()=>{let bm=best(getSt(),botDepth);if(bm)doMove(bm,true);think=false;},botDepth===4?100:350);}
+}
+function clk(r,c){if(turn==='b'||think||gameOver)return;let p=board[r][c];if(sel){for(let m of leg){if(m.to[0]===r&&m.to[1]===c){doMove(m,false);return;}}}if(p&&p.color==='w'){sel=[r,c];let all=pseudo(getSt(),r,c);leg=[];for(let m of all){let ns=apply(getSt(),m),k=findK(ns.board,'w');if(k&&!attacked(ns.board,k,'b'))leg.push(m);}}else{sel=null;leg=[];}render();}
+function doMove(m,isBot){
+ if(gameOver)return;
+ let evalBefore=evalB(board);let st=getSt();
+ if(!isBot){
+  let nsTemp=apply(st,m);let evalAfter=evalB(nsTemp.board);
+  let res=smartAnalysis(m,board,nsTemp.board,evalBefore,evalAfter);
+  talk(res.text,res.mood);document.getElementById('botEval').textContent=res.eval;
+ }
+ history.push({...st,cW:cW.slice(),cB:cB.slice(),last:last?{...last}:null,wt:whiteTime,bt:blackTime});
+ if(m.captured){if(m.captured.color==='w')cW.push(m.captured);else cB.push(m.captured);}
+ let ns=apply(st,m),ok=findK(ns.board,ns.turn);let chk=ok&&attacked(ns.board,ok,st.turn);let opp=legal(ns),mate=opp.length===0&&chk;let san=toSAN(m,st,chk,mate);moveHistory.push(san);last=m;board=ns.board;turn=ns.turn;castling=ns.castling;enPassant=ns.enPassant;sel=null;leg=[];
+ if(isBot&&mate)setTimeout(()=>talk(`<b>Checkmate! ${san}# I win! 👑</b>`,"😎"),300);
+ render();
+}
+function undo(){
+ if(history.length===0||think)return;let prev=history.pop();board=prev.board;turn=prev.turn;castling=prev.castling;enPassant=prev.enPassant;cW=prev.cW||[];cB=prev.cB||[];last=prev.last||null;whiteTime=prev.wt||whiteTime;blackTime=prev.bt||blackTime;moveHistory.pop();
+ if(turn==='b'&&history.length>0){prev=history.pop();board=prev.board;turn=prev.turn;castling=prev.castling;enPassant=prev.enPassant;cW=prev.cW||[];cB=prev.cB||[];last=prev.last||null;whiteTime=prev.wt||whiteTime;blackTime=prev.bt||blackTime;moveHistory.pop();}
+ sel=null;leg=[];gameOver=false;think=false;talk("Undone! ↩️","🙂");document.getElementById('botEval').textContent="";render();
+}
+function newGame(){init();document.getElementById('botEval').textContent="";}
+function hint(){if(turn!=='w'||gameOver||think)return;let st=getSt(),bm=best(st,2);if(!bm)return;sel=bm.from;leg=[bm];render();talk(`Hint: <b>${toSAN(bm,st,false,false)}</b> 💡`,"💡")}
+init();
+</script>
+</body>
+</html>
